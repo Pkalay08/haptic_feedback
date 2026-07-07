@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace haptic_feedback {
 
@@ -121,6 +122,44 @@ public:
         virtual bool transfer(const std::uint8_t* tx,
                               std::uint8_t* rx,
                               std::size_t length) = 0;
+    };
+
+    struct LinuxSpiConfig {
+        std::uint32_t speed_hz;
+        std::uint8_t mode;
+        std::uint8_t bits_per_word;
+        std::uint16_t delay_usecs;
+    };
+
+    class LinuxSpiBus : public SpiBus {
+    public:
+        static constexpr std::uint8_t kSpiMode1 = 0x01;
+        static constexpr std::uint8_t kDefaultBitsPerWord = 8;
+        static constexpr std::uint32_t kDefaultSpeedHz = 1000000;
+
+        explicit LinuxSpiBus(const std::string& device_path);
+        LinuxSpiBus(const std::string& device_path, const LinuxSpiConfig& config);
+        ~LinuxSpiBus();
+
+        LinuxSpiBus(const LinuxSpiBus&) = delete;
+        LinuxSpiBus& operator=(const LinuxSpiBus&) = delete;
+
+        bool open();
+        void close();
+        bool isOpen() const;
+        const std::string& devicePath() const;
+        const LinuxSpiConfig& config() const;
+
+        bool transfer(const std::uint8_t* tx,
+                      std::uint8_t* rx,
+                      std::size_t length) override;
+
+    private:
+        bool configureDevice();
+
+        std::string device_path_;
+        LinuxSpiConfig config_;
+        int fd_;
     };
 
     explicit ADS1299(SpiBus& spi);
