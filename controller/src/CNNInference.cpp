@@ -1,6 +1,4 @@
-// emg_imu_inference.cpp
-#include "emg_imu_inference.hpp"
-
+#include "CNNInference.hpp"
 #include <cstring>
 
 namespace arm_control {
