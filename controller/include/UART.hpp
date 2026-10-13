@@ -157,7 +157,7 @@ public:
     bool initialize();
     bool isOpen() const;
 
-    int send(const std::uint8_t* data, std::size_t length);
+    int send(const std::string& cmd, const std::uint8_t* data, std::size_t length);
     int receive(std::uint8_t* data, std::size_t length);
     bool sendText(const std::string& text);
 

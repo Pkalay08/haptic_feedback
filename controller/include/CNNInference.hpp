@@ -1,49 +1,35 @@
-// emg_imu_inference.hpp
-#ifndef EMG_IMU_INFERENCE_HPP
-#define EMG_IMU_INFERENCE_HPP
+#ifndef CNN_INFERENCE_HPP
+#define CNN_INFERENCE_HPP
 
-#include <cstddef>
-#include <memory>
 #include <string>
+#include <vector>
+#include <cstdint>
 
-#include "tensorflow/lite/interpreter.h"
-#include "tensorflow/lite/model_builder.h"
-#include "tensorflow/lite/kernels/register.h"
+// Forward declaration of LiteRT C API types
+struct TfLiteModel;
+struct TfLiteInterpreterOptions;
+struct TfLiteInterpreter;
 
-namespace arm_control {
-
-class EMGIMUInference {
+class CNNInference {
 public:
-    EMGIMUInference();
-    ~EMGIMUInference() = default;
+    CNNInference(const std::string& model_path);
+    ~CNNInference();
 
-    // Non-copyable, non-movable
-    EMGIMUInference(const EMGIMUInference&) = delete;
-    EMGIMUInference& operator=(const EMGIMUInference&) = delete;
-    EMGIMUInference(EMGIMUInference&&) = delete;
-    EMGIMUInference& operator=(EMGIMUInference&&) = delete;
+    // Run inference on a window of shape (window_size, num_features)
+    // Returns a vector of 5 servo positions (normalized, multiply by label_max to recover)
+    std::vector<float> predict(const std::vector<std::vector<float>>& input_window);
 
-    bool LoadModel(const std::string& model_path);
-
-    bool SetInputTensor(int tensor_index, const float* data, size_t data_size);
-    bool SetInput(const float* data, size_t data_size);
-    bool RunInference();
-
-    bool GetOutputTensor(int tensor_index, float* output_buffer, size_t buffer_size) const;
-    bool GetServoPositions(float* servo_positions, size_t num_servos) const;
-
-    size_t GetInputTensorSize(int tensor_index) const;
-    size_t GetOutputTensorSize(int tensor_index) const;
-    int GetNumInputTensors() const;
-    int GetNumOutputTensors() const;
-    bool IsReady() const;
+    // Check if the model loaded successfully
+    bool isLoaded() const { return interpreter_ != nullptr; }
 
 private:
-    std::unique_ptr<tflite::FlatBufferModel> model_;
-    std::unique_ptr<tflite::Interpreter> interpreter_;
-    bool is_ready_;
+    TfLiteModel* model_ = nullptr;
+    TfLiteInterpreterOptions* options_ = nullptr;
+    TfLiteInterpreter* interpreter_ = nullptr;
+
+    int window_size_ = 50;
+    int num_features_ = 13;
+    int num_outputs_ = 5;
 };
 
-} // namespace arm_control
-
-#endif // EMG_IMU_INFERENCE_HPP
+#endif // CNN_INFERENCE_HPP

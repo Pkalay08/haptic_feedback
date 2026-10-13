@@ -1,0 +1,15 @@
+{
+    "folders": [
+        {
+            "path": "controller",
+            "name": "Controller"
+        },
+        {
+            "path": "cubeMX",
+            "name": "Follower"
+        }
+    ],
+    "settings": {
+        "C_Cpp.default.compileCommands": ""
+    }
+}

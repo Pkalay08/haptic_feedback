@@ -3,6 +3,9 @@
   ******************************************************************************
   * @file           : main.c
   * @brief          : Main program body
+  *                   Connections: I2C: green = clock, SC0 3rd from bottom right side => encoders
+  *                                I2C: white = clock, SDA on adafruit, 4th from top right => STM
+  *                              UART : PA9
   ******************************************************************************
   * @attention
   *
@@ -18,12 +21,14 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "math.h"
 #include <string.h>
 #include <stdio.h>
+#include "logger.h"
 
 /* USER CODE END Includes */
 
@@ -34,11 +39,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SERVO_1        1
-#define SERVO_2        2
-#define SERVO_3        3
-#define SERVO_4        4
-#define SERVO_5        5
 #define UART_TIMEOUT   100
 
 // TCA9548A I2C Multiplexer address
@@ -47,11 +47,9 @@
 // Magnetic Encoder (AS5600) address
 #define ENCODER_ADDR   0x36
 
-// Number of servos
+// Number of servos`
 #define NUM_SERVOS     5
 
-// Phase shift between servos (pi/4 radians)
-#define PHASE_SHIFT    0.785398163f  // pi/4
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,6 +59,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
+
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
@@ -77,7 +76,7 @@ static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-void lx16a_send_packet(uint8_t id, int cmd, uint8_t len, uint16_t angle, uint16_t time);
+void lx16a_send_packet(uint8_t id, uint8_t cmd, uint8_t len, uint16_t angle, uint16_t time);
 void tca9548a_select_channel(uint8_t channel);
 uint16_t read_encoder(uint8_t channel);
 void send_telemetry(void);
@@ -85,27 +84,61 @@ void send_telemetry(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void lx16a_send_packet(uint8_t id, int cmd, uint8_t len, uint16_t angle, uint16_t time) {
+/**
+  * @brief sends data packet to LX-16A servo
+  * @param ID, CMD, LEN, Angle, Time
+  */
+void lx16a_send_packet(uint8_t id, uint8_t cmd, uint8_t len, uint16_t angle, uint16_t time) {
     // Packet format: 0x55 0x55 [ID] [LEN=7] CMD [PARAM_1] ... [PARAM_N]  [CHECKSUM]
     servo_packet[0] = 0x55;
     servo_packet[1] = 0x55;
     servo_packet[2] = id;
     servo_packet[3] = len;
-    servo_packet[4] = angle & 0xFF;
-    servo_packet[5] = (angle >> 8) & 0xFF;
-    servo_packet[6] = time & 0xFF;
-    servo_packet[7] = (time >> 8) & 0xFF;
-    servo_packet[8] = 0x00;
+    servo_packet[4] = cmd;
+    servo_packet[5] = angle & 0xFF;
+    servo_packet[6] = (angle >> 8) & 0xFF;
+    servo_packet[7] = time & 0xFF;
+    servo_packet[8] = (time >> 8) & 0xFF;
+    servo_packet[9] = 0x00;
 
-    // Calculate checksum (XOR of bytes 2-8)
+    // Calculate checksum (summation of bytes 2-8)
     uint8_t checksum = 0;
     for (int i = 2; i < 9; i++) {
-        checksum ^= servo_packet[i];
+        checksum += servo_packet[i];
     }
-    servo_packet[9] = checksum;
+    servo_packet[9] = ~checksum; 
+
+    char buffer[120];
+    int offset = sprintf(buffer, "packet contents: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n", servo_packet[0], servo_packet[1],
+                          servo_packet[2], servo_packet[3], servo_packet[4], servo_packet[5], servo_packet[6], servo_packet[7], servo_packet[8],
+                        servo_packet[9]);
+
+    CDC_Transmit_FS((uint8_t*)buffer, offset);
 
     // Send over UART (blocking)
-    HAL_UART_Transmit(&huart1, servo_packet, 9, UART_TIMEOUT);
+    HAL_UART_Transmit(&huart1, servo_packet, 10, UART_TIMEOUT);
+    HAL_Delay(2);
+    
+}
+
+void send_serial_packet()
+
+/**
+  * @brief Home LX-16A servos upon startup 
+  * @param channel Channel number (0-4 for servos 1-5)
+  * @return 12-bit angle value (0-4095)
+  */
+void lx16a_home(void) {
+  // home servos when loop starts
+  lx16a_send_packet(254, LX16A_SERVO_MOVE_TIME_WRITE, 7, 0, 5000);
+
+  lx16a_send_packet(254, LX16A_SERVO_MOVE_TIME_WRITE, 7, 500, 5000);
+
+  lx16a_send_packet(254, LX16A_SERVO_MOVE_TIME_WRITE, 7, 1000, 5000);
+
+  lx16a_send_packet(254, LX16A_SERVO_MOVE_TIME_WRITE, 7, 0, 5000);
+
+    
 }
 
 /**
@@ -168,7 +201,6 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -183,36 +215,30 @@ int main(void)
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
  // Initialize variables
-  uint16_t angles[NUM_SERVOS];
+  uint16_t angle;
   float time = 0.0f;
-  int servo_index;
-
+  logger_init();
+  logger_setLevel(LOG_LEVEL_INFO);
+  lx16a_home();
   // Initialize encoder values array
   for (int i = 0; i < NUM_SERVOS; i++) {
       encoder_values[i] = 0;
   }
+
+  char msg[] = "All systems initialized!\r\n";
+  CDC_Transmit_FS((uint8_t*)msg, strlen(msg));
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
 
-    // Calculate and move each servo with phase shift
-    for (servo_index = 0; servo_index < NUM_SERVOS; servo_index++) {
-        // Calculate angle: center 500, amplitude 400, phase shift per servo
-        float phase = (float)servo_index * PHASE_SHIFT;
-        angles[servo_index] = 500 + (uint16_t)(400 * sin(time + phase));
-
-        // Send position to servo (ID = servo_index + 1)
-        lx16a_send_packet(servo_index + 1, LX16A_SERVO_MOVE_TIME_WRITE, 7, angles[servo_index], 20);
-
-        // Read encoder value from corresponding multiplexer channel
-        encoder_values[servo_index] = read_encoder(servo_index);
-    }
+    angle = 500 + (uint16_t)(500 * sin(time));
+    lx16a_send_packet(254, LX16A_SERVO_MOVE_TIME_WRITE, 7, angle, 20);
 
     // Send telemetry data over UART
     send_telemetry();
@@ -220,6 +246,7 @@ int main(void)
     // Delay 10ms (100Hz)
     HAL_Delay(10);
     time += 0.1f;
+    /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
@@ -243,10 +270,16 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 15;
+  RCC_OscInitStruct.PLL.PLLN = 144;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 5;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -256,7 +289,7 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSE;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
@@ -265,6 +298,7 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+  HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_HSI, RCC_MCODIV_1);
 }
 
 /**
@@ -296,9 +330,6 @@ static void MX_I2C1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN I2C1_Init 2 */
-  char buffer[50];
-  sprintf(buffer, "I2C Initialized\n");
-  printf("%s", buffer);
   /* USER CODE END I2C1_Init 2 */
 
 }
@@ -326,15 +357,11 @@ static void MX_USART1_UART_Init(void)
   huart1.Init.Mode = UART_MODE_TX_RX;
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_HalfDuplex_Init(&huart1) != HAL_OK)
+  if (HAL_UART_Init(&huart1) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN USART1_Init 2 */
-
-  char buffer[50];
-  sprintf(buffer, "UART1 Initialized\n");
-  printf("%s", buffer);
   /* USER CODE END USART1_Init 2 */
 
 }
@@ -367,9 +394,6 @@ static void MX_USART2_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USART2_Init 2 */
-  char buffer[50];
-  sprintf(buffer, "UART2 Initialized\n");
-  printf("%s", buffer);
   /* USER CODE END USART2_Init 2 */
 
 }
@@ -381,18 +405,25 @@ static void MX_USART2_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /*Configure GPIO pin : PA8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = GPIO_AF0_MCO;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
-  char buffer[50];
-  sprintf(buffer, "GPIO Initialized\n");
-  printf("%s", buffer);
   /* USER CODE END MX_GPIO_Init_2 */
 }
 

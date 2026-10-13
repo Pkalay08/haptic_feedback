@@ -127,7 +127,7 @@ int UART::LinuxSerialPort::read(std::uint8_t* data, std::size_t length)
 #endif
 }
 
-int UART::LinuxSerialPort::write(const std::uint8_t* data, std::size_t length)
+int UART::LinuxSerialPort:: write(const std::uint8_t* data, std::size_t length)
 {
 #if defined(__linux__)
     if (!isOpen() || data == nullptr || length == 0) {
@@ -277,13 +277,13 @@ bool BLE60::isOpen() const
     return serial_.isOpen();
 }
 
-int BLE60::send(const std::uint8_t* data, std::size_t length)
+int BLE60::send(const std::string& cmd, const std::uint8_t* data, std::size_t length)
 {
     if (data == nullptr || length == 0) {
         return -1;
     }
-
-    return serial_.write(data, length);
+    std::string message = cmd + kCommandTerminator;
+    return serial_.write((const std::uint8_t*)message.c_str(), message.length());
 }
 
 int BLE60::receive(std::uint8_t* data, std::size_t length)

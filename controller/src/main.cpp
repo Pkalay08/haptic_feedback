@@ -41,9 +41,9 @@ int main(int argc, char* argv[]) {
     MPU6050 imuUpper("/dev/i2c-1", 0x68);
     
     // Example: MPU6050 on I2C bus 1, address 0x69 (lower arm)
-    // MPU6050 imuLower("/dev/i2c-1", 0x69);  // Uncomment if using two IMUs
+    MPU6050 imuLower("/dev/i2c-1", 0x69);  // Uncomment if using two IMUs
     
-    // Example: BLE over UART (HM-10) on /dev/ttyS0 at 115200 baud
+    // Example: BLE over UART (BLE60) on /dev/ttyS0 at 115200 baud
     UART bleUart("/dev/ttyS0", 115200);
     
     // --- 2. INSTANTIATE PROCESSING PIPELINE ---
@@ -51,10 +51,10 @@ int main(int argc, char* argv[]) {
     EMGSignalProcessor emgProcessor(250.0f);
     
     // CNN Inference (quantized TFLite model)
-    CNNInference cnn("models/emg_model_quantized.tflite");
+    EMGIMUInference cnn("models/emg_model_quantized.tflite");
     
     // Communication Protocol (packet formatting)
-    CommunicationProtocol protocol;
+    SerialTransport protocol;
     
     // --- 3. INSTANTIATE LOGGER (optional) ---
     // Logger logger("telemetry.csv");  // Uncomment for file logging
