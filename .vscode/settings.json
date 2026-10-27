@@ -1,3 +1,6 @@
 {
-    "cmake.sourceDirectory": "C:/Users/PK/Posidon/STUFF/haptic_feedback/cubeMX"
+    "cmake.sourceDirectory": "C:/Users/PK/Posidon/STUFF/haptic_feedback/cubeMX",
+    "nrf-connect.applications": [
+        "${workspaceFolder}\\follower"
+    ]
 }

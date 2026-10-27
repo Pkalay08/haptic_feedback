@@ -36,10 +36,10 @@ enum class MessageType : uint8_t {
 #pragma pack(push, 1)
 
 struct ServoCommandPayload {
-    uint16_t num_servos;
-    float    positions[MAX_SERVOS];
-    uint16_t duration_ms;
-    uint8_t  flags;
+    uint8_t    num_servos;
+    uint16_t   positions[MAX_SERVOS];
+    uint16_t   duration_ms;
+    uint8_t    flags;
 };
 
 struct HapticFeedbackPayload {

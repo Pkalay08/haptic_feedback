@@ -1,1 +1,11 @@
-build*/
+*/build/*
+docs/*
+
+*.uf2
+*.hex
+*/CMakeLists.txt
+*.json
+
+*.conf
+
+.vscode/*

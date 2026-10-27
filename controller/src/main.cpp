@@ -26,129 +26,64 @@ void signalHandler(int signal) {
 }
 
 // === MAIN ENTRY POINT ===
-int main(int argc, char* argv[]) {
-    // Set up signal handling (Ctrl+C to stop)
-    std::signal(SIGINT, signalHandler);
-    std::signal(SIGTERM, signalHandler);
+int main() {
+    using namespace haptic_feedback;
 
-    // --- 1. INSTANTIATE HARDWARE DRIVERS ---
-    // **FILL IN THE CONSTRUCTOR PARAMETERS FOR YOUR SETUP**
-    
-    // Example: ADS1299 on /dev/spidev0.0 at 4MHz
-    ADS1299 ads1299("/dev/spidev0.0", 4000000);
-    
-    // Example: MPU6050 on I2C bus 1, address 0x68 (upper arm)
-    MPU6050 imuUpper("/dev/i2c-1", 0x68);
-    
-    // Example: MPU6050 on I2C bus 1, address 0x69 (lower arm)
-    MPU6050 imuLower("/dev/i2c-1", 0x69);  // Uncomment if using two IMUs
-    
-    // Example: BLE over UART (BLE60) on /dev/ttyS0 at 115200 baud
-    UART bleUart("/dev/ttyS0", 115200);
-    
-    // --- 2. INSTANTIATE PROCESSING PIPELINE ---
-    // EMG Signal Processor (sampling rate = 250 Hz)
-    EMGSignalProcessor emgProcessor(250.0f);
-    
-    // CNN Inference (quantized TFLite model)
-    EMGIMUInference cnn("models/emg_model_quantized.tflite");
-    
-    // Communication Protocol (packet formatting)
-    SerialTransport protocol;
-    
-    // --- 3. INSTANTIATE LOGGER (optional) ---
-    // Logger logger("telemetry.csv");  // Uncomment for file logging
+    auto cfg = UART::ble60DefaultConfig();
+    UART::LinuxSerialPort uart("/dev/serial0", cfg);  // or "/dev/ttyAMA0"
 
-    // --- 4. INITIALIZE HARDWARE ---
-    std::cout << "Initializing ADS1299..." << std::endl;
-    if (!ads1299.init()) {
-        std::cerr << "ADS1299 initialization failed!" << std::endl;
-        return -1;
-    }
-    
-    std::cout << "Initializing IMU..." << std::endl;
-    if (!imuUpper.init()) {
-        std::cerr << "IMU initialization failed!" << std::endl;
-        return -1;
-    }
-    
-    std::cout << "Initializing BLE UART..." << std::endl;
-    if (!bleUart.init()) {
-        std::cerr << "BLE UART initialization failed!" << std::endl;
-        return -1;
-    }
-    
-    std::cout << "Loading CNN model..." << std::endl;
-    if (!cnn.loadModel()) {
-        std::cerr << "CNN model loading failed!" << std::endl;
-        return -1;
+    if (!uart.open()) {
+        std::cerr << "Failed to open UART\n";
+        return 1;
     }
 
-    // --- 5. MAIN CONTROL LOOP (10 Hz) ---
-    std::cout << "Starting main control loop..." << std::endl;
-    const int loopRateHz = 10;  // 10 Hz = 100 ms per cycle
-    const std::chrono::milliseconds loopDuration(1000 / loopRateHz);
-    
-    int gripClass = 0;
-    float confidence = 0.0f;
-    int servoPosition = 0;
-    
-    while (running) {
-        auto loopStart = std::chrono::steady_clock::now();
-
-        // --- Step 1: Read EMG Data ---
-        int16_t emgSample = ads1299.readChannel(1);  // Read from ADS1299 Channel 1
-        
-        // --- Step 2: Read IMU Data (optional gating) ---
-        float accelX = imuUpper.readAccelX();
-        float accelY = imuUpper.readAccelY();
-        float accelZ = imuUpper.readAccelZ();
-        
-        // --- Step 3: Process EMG Signal ---
-        float envelope = emgProcessor.processSample(emgSample);
-        
-        // --- Step 4: Run CNN Inference (every 100 ms) ---
-        // Collect a window of EMG samples (e.g., 25 samples at 250 SPS = 100 ms)
-        float emgWindow[25];
-        // This is a placeholder—your EMGSignalProcessor class should provide a getWindow() method
-        // emgProcessor.getWindow(emgWindow, 25);
-        // gripClass = cnn.predict(emgWindow, 25);
-        // confidence = cnn.getConfidence();
-        
-        // For now, use a dummy value (replace with actual inference)
-        gripClass = 0;  // Replace with cnn.predict(emgWindow)
-        confidence = 0.95f;
-        
-        // --- Step 5: Map Grip Class to Servo Position ---
-        servoPosition = protocol.mapGripToPosition(gripClass);
-        
-        // --- Step 6: Send Servo Position over BLE ---
-        uint8_t blePacket[4];
-        int packetLen = protocol.encodePosition(servoPosition, blePacket);
-        bleUart.send(blePacket, packetLen);
-        
-        // --- Step 7: Send Telemetry (optional) ---
-        // logger.log(gripClass, confidence, servoPosition, accelX, accelY, accelZ);
-        
-        // --- Step 8: Print Debug Information ---
-        std::cout << "Grip: " << gripClass 
-                  << " | Conf: " << confidence 
-                  << " | Pos: " << servoPosition 
-                  << std::endl;
-
-        // --- Step 9: Wait for next cycle (non-blocking) ---
-        auto loopEnd = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(loopEnd - loopStart);
-        
-        if (elapsed < loopDuration) {
-            std::this_thread::sleep_for(loopDuration - elapsed);
-        }
+    BLE60 ble(uart);
+    if (!ble.initialize()) {
+        std::cerr << "Failed to initialize BLE60\n";
+        return 1;
     }
 
-    std::cout << "Shutting down gracefully..." << std::endl;
-    
-    // --- 6. CLEANUP ---
-    // (Destructors will handle cleanup)
-    
+    // --- 1. Confirm AT-command mode works ---
+    std::string resp;
+    if (!ble.transactCommand("at+ab config BuildVersion", resp, 128)) {
+        std::cerr << "No response to BuildVersion\n";
+        return 1;
+    }
+    std::cout << "BuildVersion: " << resp << std::endl;
+
+    // --- 2. Make sure we are in command mode ---
+    //     (If the module is already in command mode, this is a no-op;
+    //      if it is stuck in bypass, it will exit.)
+    if (!ble.enterCommandMode()) {
+        std::cerr << "Could not enter command mode (still in bypass?)\n";
+        // Not fatal — try to continue anyway
+    }
+
+    // --- 3. Configure the module ---
+    ble.transactCommand("AT+AB LeAdv Enable", resp, 64);
+    std::cout << "Adv: " << resp << std::endl;
+
+    // --- 4. Enter bypass mode for binary data ---
+    if (!ble.enterBypassMode()) {
+        std::cerr << "Failed to enter bypass mode\n";
+        return 1;
+    }
+    std::cout << "In bypass mode\n";
+
+    // --- 5. Send a known test frame ---
+    // 5 servo angles as uint16_t little-endian + 0xAA start byte
+    std::uint8_t frame[11] = {0xAA,
+        0x00, 0x64,   // servo1 = 100
+        0x00, 0x64,   // servo2 = 100
+        0x00, 0x64,   // servo3 = 100
+        0x00, 0x64,   // servo4 = 100
+        0x00, 0x64};  // servo5 = 100
+
+    for (int i = 0; i < 20; ++i) {
+        int n = ble.sendRaw(frame, sizeof(frame));
+        std::cout << "Sent " << n << " bytes\n";
+        ::sleep(1);
+    }
+
     return 0;
 }

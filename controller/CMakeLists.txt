@@ -4,6 +4,7 @@
 
 # --- 1. Project declaration ---
 cmake_minimum_required(VERSION 3.16)
+set(CMAKE_SYSROOT /usr/arm-linux-gnueabihf)
 project(haptic_controller LANGUAGES CXX)
 
 # --- 2. C++ standard ---

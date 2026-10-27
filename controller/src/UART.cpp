@@ -371,4 +371,63 @@ UART::SerialPort& BLE60::serialPort()
     return serial_;
 }
 
+bool BLE60::enterCommandMode()
+{
+    // Escape sequence has NO terminator.
+    // A#A\$% in a C++ string literal:
+    static const char kEscape[] = "^#^$^%";
+    const std::size_t escape_len = sizeof(kEscape) - 1;
+
+    if (!serial_.flushBoth()) {
+        return false;
+    }
+
+    const int written = serial_.write(
+        reinterpret_cast<const std::uint8_t*>(kEscape), escape_len);
+    if (written != static_cast<int>(escape_len) || !serial_.drainOutput()) {
+        return false;
+    }
+
+    // The module only responds after ~2 seconds of no traffic.
+    ::sleep(2);
+
+    std::string response;
+    if (!readResponse(response, 64)) {
+        return false;
+    }
+
+    // Look for "CommandMode" in the reply.
+    return response.find("CommandMode") != std::string::npos;
+}
+
+bool BLE60::enterBypassMode()
+{
+    std::string response;
+    if (!transactCommand("AT+AB LeBypass", response, 64)) {
+        return false;
+    }
+    return response.find("BypassMode") != std::string::npos;
+}
+
+bool BLE60::reset()
+{
+    // Reset does not produce a normal reply; it reboots the BLE60.
+    return sendCommand("AT+AB Reset");
+}
+
+int BLE60::sendRaw(const std::uint8_t* data, std::size_t length)
+{
+    if (!isOpen() || data == nullptr || length == 0) {
+        return -1;
+    }
+    const int written = serial_.write(data, length);
+    if (written != static_cast<int>(length)) {
+        return written;
+    }
+    if (!serial_.drainOutput()) {
+        return -1;
+    }
+    return written;
+}
+
 } // namespace haptic_feedback

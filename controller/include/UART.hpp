@@ -161,6 +161,17 @@ public:
     int receive(std::uint8_t* data, std::size_t length);
     bool sendText(const std::string& text);
 
+    // ---- Mode control ----
+    bool enterCommandMode();          // sends A#A\$% (no CRLF), waits 2s, reads "AT-AB-CommandMode"
+    bool enterBypassMode();           // sends AT+AB LeBypass and waits for "AT-AB-BypassMode"
+    bool reset();                     // sends AT+AB Reset
+
+    // ---- Raw data (bypass mode) ----
+    int sendRaw(const std::uint8_t* data, std::size_t length);   // no terminator, no framing
+    int sendRaw(const std::string& text) {
+        return sendRaw(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
+    }
+
     bool sendCommand(const std::string& command);
     bool transactCommand(const std::string& command,
                          std::string& response,

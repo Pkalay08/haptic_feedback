@@ -137,8 +137,7 @@ void lx16a_home(void) {
   lx16a_send_packet(254, LX16A_SERVO_MOVE_TIME_WRITE, 7, 1000, 5000);
 
   lx16a_send_packet(254, LX16A_SERVO_MOVE_TIME_WRITE, 7, 0, 5000);
-
-    
+  
 }
 
 /**
