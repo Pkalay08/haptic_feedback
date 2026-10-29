@@ -15,21 +15,21 @@ namespace {
 speed_t toLinuxBaudRate(UART::BaudRate baud_rate)
 {
     switch (baud_rate) {
-    case UART::BaudRate::B9600:
+    case UART::BaudRate::Rate9600:
         return B9600;
-    case UART::BaudRate::B19200:
+    case UART::BaudRate::Rate19200:
         return B19200;
-    case UART::BaudRate::B38400:
+    case UART::BaudRate::Rate38400:
         return B38400;
-    case UART::BaudRate::B57600:
+    case UART::BaudRate::Rate57600:
         return B57600;
-    case UART::BaudRate::B115200:
+    case UART::BaudRate::Rate115200:
         return B115200;
-    case UART::BaudRate::B230400:
+    case UART::BaudRate::Rate230400:
         return B230400;
-    case UART::BaudRate::B460800:
+    case UART::BaudRate::Rate460800:
         return B460800;
-    case UART::BaudRate::B921600:
+    case UART::BaudRate::Rate921600:
         return B921600;
     default:
         return B115200;

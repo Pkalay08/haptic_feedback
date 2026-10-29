@@ -6,10 +6,11 @@
 #include <thread>
 #include <atomic>
 #include <csignal>
+#include <iostream>
 
 // Your custom headers
 #include "ADS1299.hpp"
-#include "CNNInference.hpp"
+/*#include "CNNInference.hpp"*/
 #include "Communication_protocol.hpp"
 #include "EMGSignalProcessor.hpp"
 #include "MPU6050.hpp"

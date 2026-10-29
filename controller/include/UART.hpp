@@ -10,14 +10,14 @@ namespace haptic_feedback {
 class UART {
 public:
     enum class BaudRate : std::uint32_t {
-        B9600 = 9600,
-        B19200 = 19200,
-        B38400 = 38400,
-        B57600 = 57600,
-        B115200 = 115200,
-        B230400 = 230400,
-        B460800 = 460800,
-        B921600 = 921600,
+        Rate9600 = 9600,
+        Rate19200 = 19200,
+        Rate38400 = 38400,
+        Rate57600 = 57600,
+        Rate115200 = 115200,
+        Rate230400 = 230400,
+        Rate460800 = 460800,
+        Rate921600 = 921600,
     };
 
     enum class DataBits : std::uint8_t {
@@ -101,7 +101,7 @@ public:
     static Config defaultConfig()
     {
         Config config = {};
-        config.baud_rate = BaudRate::B115200;
+        config.baud_rate = BaudRate::Rate115200;
         config.data_bits = DataBits::Eight;
         config.parity = Parity::None;
         config.stop_bits = StopBits::One;
@@ -115,7 +115,7 @@ public:
     static Config ble60DefaultConfig()
     {
         Config config = defaultConfig();
-        config.baud_rate = BaudRate::B115200;
+        config.baud_rate = BaudRate::Rate115200;
         config.data_bits = DataBits::Eight;
         config.parity = Parity::None;
         config.stop_bits = StopBits::One;

@@ -4,7 +4,7 @@
 
 // LiteRT C API headers (installed with the LiteRT C library)
 extern "C" {
-#include "tensorflow/lite/c/c_api.h"
+    #include "tensorflow/lite/c/c_api.h"
 }
 
 CNNInference::CNNInference(const std::string& model_path) {
@@ -35,8 +35,7 @@ CNNInference::CNNInference(const std::string& model_path) {
     }
 
     // 5. Verify input tensor shape
-    int input_idx = TfLiteInterpreterGetInputTensorIndex(interpreter_, 0);
-    const TfLiteTensor* input_tensor = TfLiteInterpreterGetInputTensor(interpreter_, input_idx);
+    const TfLiteTensor* input_tensor = TfLiteInterpreterGetInputTensor(interpreter_, 0);
     if (input_tensor) {
         int ndims = TfLiteTensorNumDims(input_tensor);
         if (ndims == 3) {
@@ -63,12 +62,11 @@ std::vector<float> CNNInference::predict(const std::vector<std::vector<float>>& 
     }
 
     // 1. Get input tensor
-    int input_idx = TfLiteInterpreterGetInputTensorIndex(interpreter_, 0);
-    TfLiteTensor* input_tensor = TfLiteInterpreterGetInputTensor(interpreter_, input_idx);
+    TfLiteTensor* input_tensor = TfLiteInterpreterGetInputTensor(interpreter_, 0);
     if (!input_tensor) return output;
 
     // 2. Copy input data into the tensor (flattened)
-    float* input_data = TfLiteTensorData(input_tensor);
+    float* input_data = static_cast<float*>(TfLiteTensorData(input_tensor));;
     if (!input_data) return output;
 
     size_t idx = 0;
@@ -85,11 +83,10 @@ std::vector<float> CNNInference::predict(const std::vector<std::vector<float>>& 
     }
 
     // 4. Get output tensor
-    int output_idx = TfLiteInterpreterGetOutputTensorIndex(interpreter_, 0);
-    const TfLiteTensor* output_tensor = TfLiteInterpreterGetOutputTensor(interpreter_, output_idx);
+    const TfLiteTensor* output_tensor = TfLiteInterpreterGetOutputTensor(interpreter_, 0);
     if (!output_tensor) return output;
 
-    const float* output_data = TfLiteTensorData(output_tensor);
+    const float* output_data = static_cast<float*>(TfLiteTensorData(output_tensor));
     if (!output_data) return output;
 
     // 5. Copy output data
