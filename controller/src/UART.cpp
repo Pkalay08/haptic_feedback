@@ -1,6 +1,10 @@
 #include "UART.hpp"
 
 #include <string>
+#include <chrono>
+#include <cstdint>
+#include "Logger.hpp"
+#include <thread>
 
 #if defined(__linux__)
 #include <fcntl.h>
@@ -317,48 +321,86 @@ bool BLE60::sendCommand(const std::string& command)
     return sendText(framed_command);
 }
 
-bool BLE60::transactCommand(const std::string& command,
-                            std::string& response,
-                            std::size_t max_response_bytes)
+bool BLE60::send_and_wait(const std::string& command,
+                          const std::string& terminator,
+                          std::string&       response,
+                          int                safety_timeout_ms)
 {
+    using clock = std::chrono::steady_clock;
+    using ms    = std::chrono::milliseconds;
+
     response.clear();
 
-    if (!sendCommand(command)) {
+    if (!command.empty() && !sendCommand(command)) {
         return false;
     }
 
-    return readResponse(response, max_response_bytes);
+    const auto start = clock::now();
+
+    while (std::chrono::duration_cast<ms>(clock::now() - start).count()
+           < safety_timeout_ms) {
+        std::uint8_t b = 0;
+        const int n = serial_.read(&b, 1);
+
+        if (n > 0) {
+            response.push_back(static_cast<char>(b));
+
+            if (response.find(terminator) != std::string::npos) {
+                // Drain anything already queued, capped at 50 ms
+                const auto drain_start = clock::now();
+                while (std::chrono::duration_cast<ms>(clock::now() - drain_start).count() < 50) {
+                    std::uint8_t extra = 0;
+                    if (serial_.read(&extra, 1) <= 0) break;
+                    response.push_back(static_cast<char>(extra));
+                }
+                return true;
+            }
+        } else {
+            std::this_thread::sleep_for(ms(5));
+        }
+    }
+    return false;
 }
 
-bool BLE60::readResponse(std::string& response, std::size_t max_response_bytes)
+bool BLE60::readResponse(std::string& out,
+                        int quiet_ms,
+                        int timeout_ms)
 {
-    response.clear();
+    using clock = std::chrono::steady_clock;
+    using ms    = std::chrono::milliseconds;
 
-    if (max_response_bytes == 0) {
-        return false;
+    out.clear();
+
+    const auto start     = clock::now();
+    auto       last_byte = start;
+    bool       got_byte  = false;
+
+    while (true) {
+        const auto now     = clock::now();
+        const auto elapsed = std::chrono::duration_cast<ms>(now - start).count();
+        const auto quiet   = std::chrono::duration_cast<ms>(now - last_byte).count();
+
+        if (elapsed >= timeout_ms) {
+            break;                       // overall timeout reached
+        }
+
+        std::uint8_t b = 0;
+        const int n = serial_.read(&b, 1);
+
+        if (n > 0) {
+            out.push_back(static_cast<char>(b));
+            last_byte = clock::now();
+            got_byte  = true;
+        } else {
+            // No byte this iteration.
+            if (got_byte && quiet >= quiet_ms) {
+                return true;             // quiet period satisfied  reply complete
+            }
+            std::this_thread::sleep_for(ms(5));
+        }
     }
 
-    while (response.size() < max_response_bytes) {
-        std::uint8_t byte = 0;
-        const int bytes_read = serial_.read(&byte, 1);
-
-        if (bytes_read < 0) {
-            return false;
-        }
-
-        if (bytes_read == 0) {
-            break;
-        }
-
-        response.push_back(static_cast<char>(byte));
-        if (response.size() >= 2 &&
-            response[response.size() - 2] == '\r' &&
-            response[response.size() - 1] == '\n') {
-            break;
-        }
-    }
-
-    return !response.empty();
+    return got_byte && !out.empty();
 }
 
 bool BLE60::flush()
@@ -373,6 +415,8 @@ UART::SerialPort& BLE60::serialPort()
 
 bool BLE60::enterCommandMode()
 {
+    using ms = std::chrono::milliseconds;
+
     // Escape sequence has NO terminator.
     // A#A\$% in a C++ string literal:
     static const char kEscape[] = "^#^$^%";
@@ -389,7 +433,7 @@ bool BLE60::enterCommandMode()
     }
 
     // The module only responds after ~2 seconds of no traffic.
-    ::sleep(2);
+    std::this_thread::sleep_for(ms(2500));
 
     std::string response;
     if (!readResponse(response, 64)) {
@@ -403,8 +447,9 @@ bool BLE60::enterCommandMode()
 bool BLE60::enterBypassMode()
 {
     std::string response;
-    if (!transactCommand("AT+AB LeBypass", response, 64)) {
-        return false;
+    send_and_wait("AT+AB LeBypass", Terminator::BypassMode, response);
+    if (response.empty()){
+        return -1;
     }
     return response.find("BypassMode") != std::string::npos;
 }
@@ -428,6 +473,37 @@ int BLE60::sendRaw(const std::uint8_t* data, std::size_t length)
         return -1;
     }
     return written;
+}
+
+bool BLE60::transactUntil(const std::string& command,
+                          const std::string& expected_token,
+                          std::string& accumulated,
+                          int timeout_ms) {
+
+    using ms = std::chrono::milliseconds;
+    accumulated.clear();
+    
+    if (!sendCommand(command)) {
+        return false;
+    }
+
+    auto deadline = std::chrono::steady_clock::now()
+                  + std::chrono::milliseconds(timeout_ms);
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::uint8_t byte = 0;
+        int n = serial_.read(&byte, 1);
+        if (n > 0) {
+            accumulated.push_back(static_cast<char>(byte));
+            if (accumulated.find(expected_token) != std::string::npos) {
+                return true;
+            }
+        } else {
+            // small sleep so we do not busy-loop on the UART
+            std::this_thread::sleep_for(ms(5));
+        }
+    }
+    return false;
 }
 
 } // namespace haptic_feedback

@@ -159,7 +159,7 @@ bool SerialTransport::receiveFollowerState(FollowerStatePayload& state,
     if (frame.payload_length != sizeof(FollowerStatePayload))
         return false;
 
-    std::memcpy(&state, frame.payload, sizeof(frame));
+    std::memcpy(&state, frame.payload, sizeof(frame.payload));
     if (out_seq)       *out_seq       = frame.sequence;
     if (out_timestamp) *out_timestamp = frame.timestamp_ms;
     return true;

@@ -22,6 +22,7 @@ set(SOURCES
     src/EMGSignalProcessor.cpp
     src/MPU6050.cpp
     src/UART.cpp
+    src/Logger.cpp
 )
 
 # --- 4. Include directories ---

@@ -5,6 +5,18 @@
 #include <cstdint>
 #include <string>
 
+namespace Terminator {
+    constexpr const char* BuildVersion    = "BuildVersion";
+    constexpr const char* AdvOk           = "AdvOk";
+    constexpr const char* BypassMode      = "BypassMode";
+    constexpr const char* ConnectionUp    = "ConnectionUp";
+    constexpr const char* ConnectionDown  = "ConnectionDown";
+    constexpr const char* DiscoveryComplete = "DiscoveryComplete";
+    constexpr const char* CommandMode     = "-CommandMode-";
+    constexpr const char* BDAddress       = "BDAddress";
+    constexpr const char* ResetPending    = "ResetPending";
+    constexpr const char* ProfileRole     = "ProfileRole";
+}
 namespace haptic_feedback {
 
 class UART {
@@ -173,11 +185,15 @@ public:
     }
 
     bool sendCommand(const std::string& command);
-    bool transactCommand(const std::string& command,
-                         std::string& response,
-                         std::size_t max_response_bytes = kDefaultResponseBytes);
-    bool readResponse(std::string& response,
-                      std::size_t max_response_bytes = kDefaultResponseBytes);
+    bool send_and_wait(const std::string& command,
+                          const std::string& terminator,
+                          std::string&       response,
+                          int                safety_timeout_ms = 30000);
+    bool readResponse(std::string& out, int quiet_ms = 200, int timeout_ms = 2000);
+    bool transactUntil(const std::string& command,
+                          const std::string& expected_token,
+                          std::string& accumulated,
+                          int timeout_ms = 5000);
 
     bool flush();
     UART::SerialPort& serialPort();
