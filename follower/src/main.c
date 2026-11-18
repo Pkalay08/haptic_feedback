@@ -10,8 +10,13 @@
 #include <stdio.h>
 #include "i2c_devices.h"
 #include "math.h"
+#include "controller_follower_protocol.h"
+#include "follower_transport.h"
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
+
+/* ---------------  Prototype declarations ------- */
+static void lx16a_send_packet(uint8_t id, uint8_t len, uint8_t cmd, uint8_t ahb, uint8_t alb, uint16_t time);
 
 /* ---------------- Hardware UART ---------------- */
 #define UART_DEVICE_NODE DT_CHOSEN(zephyr_console)
@@ -68,16 +73,65 @@ static void qt_change_handler(const struct device *port,
 
 /* ---------------- BLE NUS callbacks ---------------- */
 static void nus_receive_cb(struct bt_conn *conn,
-                           const uint8_t *data,
-                           uint16_t len)
+                            const uint8_t *data,
+                            uint16_t len)
 {
     ARG_UNUSED(conn);
-    LOG_INF("BLE RX %d bytes -> UART\n", len);
-    for (uint16_t i = 0; i < len; i++) {
-        printk("%02X ", data[i] & 0xFF);
-        uart_poll_out(uart_dev, data[i] & 0xFF);
+    if (len < offsetof(protocol_frame_t, payload)) {
+        printk("NUS RX: short frame (%u)\n", len);
+        return;
+    }
+
+    protocol_frame_t frame;
+    memset(&frame, 0, sizeof(frame));
+
+    /* Copy the header */
+    memcpy(&frame, data, offsetof(protocol_frame_t, payload));
+
+    if (frame.start_byte != PROTO_START_BYTE) {
+        printk("NUS RX: bad start byte 0x%02X\n", frame.start_byte);
+        return;
+    }
+    if (frame.payload_length > PROTO_MAX_PAYLOAD_SIZE) {
+        printk("NUS RX: payload too long (%u)\n", frame.payload_length);
+        return;
+    }
+
+    size_t expected = frame_total_size(&frame);
+    if (len < expected) {
+        printk("NUS RX: truncated frame (got %u, need %u)\n",
+               len, (unsigned)expected);
+        return;
+    }
+
+    /* Copy payload and CRC */
+    memcpy(frame.payload, data + offsetof(protocol_frame_t, payload),
+           frame.payload_length);
+    memcpy(&frame.crc,
+           data + offsetof(protocol_frame_t, payload) + frame.payload_length,
+           sizeof(frame.crc));
+
+    if (!frame_verify_crc(&frame)) {
+        printk("NUS RX: CRC mismatch\n");
+        return;
+    }
+
+    if (frame.type != MSG_COMMAND_SERVO) {
+        printk("NUS RX: unexpected type 0x%02X\n", frame.type);
+        return;
+    }
+    if (frame.payload_length < sizeof(servo_command_payload_t)) {
+        printk("NUS RX: short servo payload\n");
+        return;
+    }
+
+    for (int i = 0; i < NUM_SERVOS; i++){
+        printk("Sending 0x%02x", frame.payload[i]);
+        lx16a_send_packet(i+1, 7, 1, frame.payload[i*2], frame.payload[(i*2)+1], 1000);
     }
 }
+
+
 
 static struct bt_nus_cb nus_cbs = {
     .received = nus_receive_cb,
@@ -168,7 +222,7 @@ K_THREAD_STACK_DEFINE(sensor_stack, 4096);
 static struct k_thread sensor_thread_data;
 
 /* ----------- SERVO PACKET FUNCTION ------------- */
-static void lx16a_send_packet(uint8_t id, uint8_t len, uint8_t cmd, uint16_t angle, uint16_t time) {
+static void lx16a_send_packet(uint8_t id, uint8_t len, uint8_t cmd, uint8_t ahb, uint8_t alb, uint16_t time) {
     // Packet format: 0x55 0x55 [ID] [LEN=7] CMD [PARAM_1] ... [PARAM_N]  [CHECKSUM]
     uint8_t servo_packet[10];
 
@@ -177,8 +231,8 @@ static void lx16a_send_packet(uint8_t id, uint8_t len, uint8_t cmd, uint16_t ang
     servo_packet[2] = id;
     servo_packet[3] = len;
     servo_packet[4] = cmd;
-    servo_packet[5] = angle & 0xFF;
-    servo_packet[6] = (angle >> 8) & 0xFF;
+    servo_packet[5] = alb;
+    servo_packet[6] = ahb;
     servo_packet[7] = time & 0xFF;
     servo_packet[8] = (time >> 8) & 0xFF;
     servo_packet[9] = 0x00;
@@ -214,51 +268,19 @@ static void lx16a_send_packet(uint8_t id, uint8_t len, uint8_t cmd, uint16_t ang
 void lx16a_home(void) {
   // home servos when loop starts
     printk("Homing servos...\n");
-    lx16a_send_packet(254, 7, 1, 0, 1000);
+    lx16a_send_packet(254, 7, 1, 0x00, 0x00, 1000);
     k_msleep(1000);
 
-    lx16a_send_packet(254, 7, 1, 100, 1000);
+    lx16a_send_packet(254, 7, 1, 0x00, 0x64, 1000);
     k_msleep(1000);
 
-    lx16a_send_packet(254, 7, 1, 0, 2000);
+    lx16a_send_packet(254, 7, 1, 0x00, 0x00, 2000);
     k_msleep(1000);
 
     return;
   
 }
 
-uint16_t angle;
-float t = 0.0f;
-
-void sin_gen(void){
-
-    int32_t raw = 500 + (int32_t)(500.0f * sinf(t));
-    if (raw < 0) raw = 0;
-    if (raw > 1000) raw = 1000;
-    uint16_t angle = (uint16_t)raw;
-    
-    for(uint8_t i; i<)
-    lx16a_send_packet(254, 7, 1, angle, 20);
-
-    k_msleep(20);
-    
-    t += 0.1f;
-
-    printk("Sine value: %d time: %.2f\n", angle, (double)t);
-}
-
-static void sine_thread(void *a, void *b, void *c)
-{
-    printk("Sine generator started\n");
-
-    while (1) {
-        sin_gen();
-        k_sleep(K_MSEC(2));
-    }
-}
-
-K_THREAD_STACK_DEFINE(sine_stack, 4096);
-static struct k_thread sine_thread_data;
 
 
 /* ---------------- main() ---------------- */
@@ -310,7 +332,7 @@ int main(void)
         LOG_ERR("bt_enable failed (err %d)", err);
         return -1;
     }
-     printk("STEP 7 done: err=%d\n", err);
+    printk("STEP 7 done: err=%d\n", err);
 
     LOG_INF("Ready. UART<->BLE bridge running.");
 
@@ -318,13 +340,7 @@ int main(void)
     lx16a_home();
     k_sleep(K_MSEC(20));
 
-    printk("STEP 9: create sensor and sine motion thread\n");
-
-    /* sine motion thread*/
-    k_thread_create(&sine_thread_data, sine_stack,
-                K_THREAD_STACK_SIZEOF(sine_stack),
-                sine_thread, NULL, NULL, NULL,
-                5, 0, K_FOREVER);
+    printk("STEP 9: create sensor thread\n");
 
     /* sensor thread*/
     k_thread_create(&sensor_thread_data, sensor_stack,

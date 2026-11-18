@@ -5,4 +5,10 @@ project(follower)
 target_sources(app PRIVATE 
     src/main.c
     src/i2c_devices.c
+    src/follower_transport.c
+    src/controller_follower_protocol.cpp
+)
+
+include_directories(
+    ${CMAKE_SOURCE_DIR}/inc
 )
