@@ -322,8 +322,8 @@ bool BLE60::sendCommand(const std::string& command)
 }
 
 bool BLE60::send_and_wait(const std::string& command,
-                          const std::string& terminator,
                           std::string&       response,
+                          int                gap_ms,
                           int                safety_timeout_ms)
 {
     using clock = std::chrono::steady_clock;
@@ -335,31 +335,36 @@ bool BLE60::send_and_wait(const std::string& command,
         return false;
     }
 
-    const auto start = clock::now();
+    const auto start     = clock::now();
+    auto       last_byte = start;
+    bool       got_byte  = false;
 
-    while (std::chrono::duration_cast<ms>(clock::now() - start).count()
-           < safety_timeout_ms) {
+    while (true) {
+        const auto now     = clock::now();
+        const auto elapsed = std::chrono::duration_cast<ms>(now - start).count();
+        const auto quiet   = std::chrono::duration_cast<ms>(now - last_byte).count();
+
+        // Absolute upper bound — a dead module is not going to answer
+        if (elapsed >= safety_timeout_ms) {
+            return got_byte && !response.empty();
+        }
+
         std::uint8_t b = 0;
         const int n = serial_.read(&b, 1);
 
         if (n > 0) {
             response.push_back(static_cast<char>(b));
-
-            if (response.find(terminator) != std::string::npos) {
-                // Drain anything already queued, capped at 50 ms
-                const auto drain_start = clock::now();
-                while (std::chrono::duration_cast<ms>(clock::now() - drain_start).count() < 50) {
-                    std::uint8_t extra = 0;
-                    if (serial_.read(&extra, 1) <= 0) break;
-                    response.push_back(static_cast<char>(extra));
-                }
+            last_byte = clock::now();
+            got_byte  = true;
+        } else {
+            // No byte this iteration. If we have at least one byte and
+            // the line has been quiet for gap_ms, the reply is complete.
+            if (got_byte && quiet >= gap_ms) {
                 return true;
             }
-        } else {
             std::this_thread::sleep_for(ms(5));
         }
     }
-    return false;
 }
 
 bool BLE60::readResponse(std::string& out,
@@ -436,9 +441,10 @@ bool BLE60::enterCommandMode()
     std::this_thread::sleep_for(ms(2500));
 
     std::string response;
-    if (!readResponse(response, 64)) {
+    if (!readResponse(response)) {
         return false;
     }
+    log("CommandMode: \n" + response);
 
     // Look for "CommandMode" in the reply.
     return response.find("CommandMode") != std::string::npos;
@@ -447,7 +453,7 @@ bool BLE60::enterCommandMode()
 bool BLE60::enterBypassMode()
 {
     std::string response;
-    send_and_wait("AT+AB LeBypass", Terminator::BypassMode, response);
+    send_and_wait("AT+AB LeBypass", response);
     if (response.empty()){
         return -1;
     }

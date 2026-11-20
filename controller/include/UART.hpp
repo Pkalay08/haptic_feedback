@@ -16,6 +16,8 @@ namespace Terminator {
     constexpr const char* BDAddress       = "BDAddress";
     constexpr const char* ResetPending    = "ResetPending";
     constexpr const char* ProfileRole     = "ProfileRole";
+    constexpr const char* AttValeInfo     = "AttValeInfo";
+    constexpr const char* LeWriteRspDone  = "LeWriteRspDone";
 }
 namespace haptic_feedback {
 
@@ -184,12 +186,12 @@ public:
         return sendRaw(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
     }
 
-    bool sendCommand(const std::string& command);
-    bool send_and_wait(const std::string& command,
-                          const std::string& terminator,
-                          std::string&       response,
-                          int                safety_timeout_ms = 30000);
-    bool readResponse(std::string& out, int quiet_ms = 200, int timeout_ms = 2000);
+    bool sendCommand(const std::string&    command);
+    bool send_and_wait(const std::string&  command,
+                          std::string&     response,
+                          int              gap_ms = 200,
+                          int              safety_timeout_ms = 30000);
+    bool readResponse(std::string& out, int quiet_ms = 200, int timeout_ms = 30000);
     bool transactUntil(const std::string& command,
                           const std::string& expected_token,
                           std::string& accumulated,
